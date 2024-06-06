@@ -31,7 +31,9 @@ jobs:
 
       # Runs a set of commands using the runners shell
       - name: Install dependencies
-        run: sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+        run: |
+          sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          sudo apt-get install libpcre3 libpcre3-dev
 
       - name: Build
         run: |
