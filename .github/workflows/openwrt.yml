@@ -38,4 +38,5 @@ jobs:
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          make
+          make download V=s
+          make V=s
