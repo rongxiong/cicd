@@ -31,14 +31,13 @@ jobs:
 
       # Runs a set of commands using the runners shell
       - name: Install dependencies
-        run: |
-          sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
-          sudo apt-get install libpcre3 libpcre3-dev
+        run: sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
 
       - name: Build
         run: |
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          make defconfig
           make download V=s
           make V=s
