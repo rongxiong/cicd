@@ -27,10 +27,10 @@ jobs:
 
       # Runs a single command using the runners shell
       - name: Run a one-line script
-        run: ls
+        run: git clone -b master --single-branch --filter=blob:none https://github.com/immortalwrt/immortalwrt
 
       # Runs a set of commands using the runners shell
       - name: Run a multi-line script
         run: |
-          pwd
+          ls
           sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
