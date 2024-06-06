@@ -35,15 +35,12 @@ jobs:
 
       - name: Build
         run: |
-          cat /proc/cpuinfo
           cp .config ./immortalwrt/
           cd immortalwrt
-          ls -a
           echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main" >> feeds.conf.default
           echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main" >> feeds.conf.default
-          cat feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
           make download V=s
-          # make V=s
+          make V=s
