@@ -33,4 +33,4 @@ jobs:
       - name: Run a multi-line script
         run: |
           pwd
-          echo test, and deploy your project.
+          sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
