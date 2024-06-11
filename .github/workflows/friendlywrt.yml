@@ -1,0 +1,61 @@
+# This is a basic workflow to help you get started with Actions
+
+name: FriendlyWrt
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  # push:
+  #   branches: [ "main" ]
+  # pull_request:
+  #   branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-20.04
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+      # Runs a single command using the runners shell
+      - name: Clone repository
+        run: |
+          mkdir friendlywrt23-rk3568
+          cd friendlywrt23-rk3568
+          git clone https://github.com/friendlyarm/repo --depth 1 tools
+          tools/repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master-v23.05 -m rk3568.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
+          tools/repo sync -c  --no-clone-bundle
+
+      # Runs a set of commands using the runners shell
+      - name: Install dependencies
+        run: |
+          sudo apt-get -y update
+          sudo apt-get install -y sudo wget
+          wget https://raw.githubusercontent.com/friendlyarm/build-env-on-ubuntu-bionic/master/install.sh
+          sudo ./install.sh
+
+      # - name: Build
+      #   run: |
+      #     cp .config ./immortalwrt/
+      #     cd immortalwrt
+      #     sed -i 's+https://github.com/immortalwrt/packages.git+https://github.com/coolsnowwolf/packages+g' feeds.conf.default
+      #     echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main" >> feeds.conf.default
+      #     echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main" >> feeds.conf.default
+      #     ./scripts/feeds update -a
+      #     ./scripts/feeds install -a
+      #     make defconfig
+      #     make download
+      #     make
+      # - uses: actions/upload-artifact@v4
+      #   with:
+      #     name: factory-img
+      #     path: /home/runner/work/cicd/cicd/immortalwrt/bin/targets/rockchip/armv8/*.gz
+      #     compression-level: 0
