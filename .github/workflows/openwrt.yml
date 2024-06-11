@@ -43,5 +43,9 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
-          make download V=s
-          make V=s
+          make download
+          make
+      - uses: actions/upload-artifact@v4
+        with:
+          name: factory-img
+          path: /home/runner/work/cicd/cicd/immortalwrt/bin/targets/rockchip/armv8/*.gz
