@@ -39,7 +39,7 @@ jobs:
           sudo apt-get install -y sudo curl
           sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/friendlyarm/build-env-on-ubuntu-bionic/master/install.sh)"
           echo "export PATH=/opt/FriendlyARM/toolchain/11.3-aarch64/bin:$PATH" >> ~/.bashrc
-          . ~/.bashrc
+          source ~/.bashrc
           aarch64-linux-gcc -v
 
       # - name: Build
