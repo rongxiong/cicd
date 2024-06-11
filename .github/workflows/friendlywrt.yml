@@ -25,22 +25,22 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Clone repository
-        run: |
-          mkdir friendlywrt23-rk3568
-          cd friendlywrt23-rk3568
-          git clone https://github.com/friendlyarm/repo --depth 1 tools
-          tools/repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master-v23.05 -m rk3568.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
-          tools/repo sync -c  --no-clone-bundle
+      # - name: Clone repository
+      #   run: |
+      #     mkdir friendlywrt23-rk3568
+      #     cd friendlywrt23-rk3568
+      #     git clone https://github.com/friendlyarm/repo --depth 1 tools
+      #     tools/repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master-v23.05 -m rk3568.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
+      #     tools/repo sync -c  --no-clone-bundle
 
-      # Runs a set of commands using the runners shell
       - name: Install dependencies
         run: |
           sudo apt-get -y update
-          sudo apt-get install -y sudo wget
-          wget https://raw.githubusercontent.com/friendlyarm/build-env-on-ubuntu-bionic/master/install.sh
-          sudo ./install.sh
+          sudo apt-get install -y sudo curl
+          sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/friendlyarm/build-env-on-ubuntu-bionic/master/install.sh)"
+          export PATH=/opt/FriendlyARM/toolchain/11.3-aarch64/bin:$PATH
+          . ~/.bashrc
+          aarch64-linux-gcc -v
 
       # - name: Build
       #   run: |
