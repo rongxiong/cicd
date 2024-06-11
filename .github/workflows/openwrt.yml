@@ -49,3 +49,4 @@ jobs:
         with:
           name: factory-img
           path: /home/runner/work/cicd/cicd/immortalwrt/bin/targets/rockchip/armv8/*.gz
+          compression-level: 0
