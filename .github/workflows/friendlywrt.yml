@@ -25,14 +25,6 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
-      # - name: Clone repository
-      #   run: |
-      #     mkdir friendlywrt23-rk3568
-      #     cd friendlywrt23-rk3568
-      #     git clone https://github.com/friendlyarm/repo --depth 1 tools
-      #     tools/repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master-v23.05 -m rk3568.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
-      #     tools/repo sync -c  --no-clone-bundle
-
       - name: Install dependencies
         run: |
           sudo apt-get -y update
@@ -42,6 +34,14 @@ jobs:
 
       - name: Test
         run: aarch64-linux-gcc -v
+
+      - name: Clone repository
+        run: |
+          mkdir friendlywrt23-rk3568
+          cd friendlywrt23-rk3568
+          git clone https://github.com/friendlyarm/repo --depth 1 tools
+          tools/repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master-v23.05 -m rk3568.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
+          tools/repo sync -c  --no-clone-bundle
 
       # - name: Build
       #   run: |
