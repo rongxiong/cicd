@@ -42,9 +42,7 @@ jobs:
 
       - name: Build
         run: |
-          pwd
-          ls
-          cd friendlywrt
+          cd friendlywrt23-rk3568/friendlywrt
           make defconfig
           cat .config
 
