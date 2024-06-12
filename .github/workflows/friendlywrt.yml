@@ -32,9 +32,6 @@ jobs:
           sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/friendlyarm/build-env-on-ubuntu-bionic/master/install.sh)"
           echo "/opt/FriendlyARM/toolchain/11.3-aarch64/bin" >> $GITHUB_PATH
 
-      - name: Test
-        run: aarch64-linux-gcc -v
-
       - name: Clone repository
         run: |
           mkdir friendlywrt23-rk3568
@@ -43,18 +40,14 @@ jobs:
           tools/repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master-v23.05 -m rk3568.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
           tools/repo sync -c  --no-clone-bundle
 
-      # - name: Build
-      #   run: |
-      #     cp .config ./immortalwrt/
-      #     cd immortalwrt
-      #     sed -i 's+https://github.com/immortalwrt/packages.git+https://github.com/coolsnowwolf/packages+g' feeds.conf.default
-      #     echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main" >> feeds.conf.default
-      #     echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main" >> feeds.conf.default
-      #     ./scripts/feeds update -a
-      #     ./scripts/feeds install -a
-      #     make defconfig
-      #     make download
-      #     make
+      - name: Build
+        run: |
+          pwd
+          ls
+          cd friendlywrt
+          make defconfig
+          cat .config
+
       # - uses: actions/upload-artifact@v4
       #   with:
       #     name: factory-img
