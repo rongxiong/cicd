@@ -43,10 +43,11 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
+          cat .config
           make download
           make
       - uses: actions/upload-artifact@v4
         with:
-          name: factory-img
+          name: images
           path: /home/runner/work/cicd/cicd/immortalwrt/bin/targets/rockchip/armv8/*.gz
           compression-level: 0
