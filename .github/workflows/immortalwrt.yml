@@ -37,7 +37,7 @@ jobs:
         run: |
           cp .config ./immortalwrt/
           cd immortalwrt
-          sed -i 's+https://github.com/immortalwrt/packages.git+https://github.com/coolsnowwolf/packages+g' feeds.conf.default
+          sed -i 's+https://github.com/immortalwrt/packages.git+https://github.com/rongxiong/packages.git+g' feeds.conf.default
           echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main" >> feeds.conf.default
           echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main" >> feeds.conf.default
           ./scripts/feeds update -a
