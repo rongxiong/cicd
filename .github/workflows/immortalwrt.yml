@@ -42,12 +42,12 @@ jobs:
           echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main" >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # make defconfig
-          # cat .config
-          make download
-          make -j$(nproc)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: images
-          path: /home/runner/work/cicd/cicd/immortalwrt/bin/targets/rockchip/armv8/*.gz
-          compression-level: 0
+          make defconfig
+          cat .config
+          # make download
+          # make -j$(nproc)
+      # - uses: actions/upload-artifact@v4
+      #   with:
+      #     name: images
+      #     path: /home/runner/work/cicd/cicd/immortalwrt/bin/targets/rockchip/armv8/*.gz
+      #     compression-level: 0
