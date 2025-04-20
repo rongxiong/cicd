@@ -42,7 +42,9 @@ jobs:
           make defconfig
           cat .config
           # make download
-          # make -j$(nproc)
+          make -j$(nproc)
+          pwd
+          ls -l bin/targets/rockchip/armv8/
       # - uses: actions/upload-artifact@v4
       #   with:
       #     name: images
