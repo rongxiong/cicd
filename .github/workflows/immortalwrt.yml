@@ -35,10 +35,10 @@ jobs:
 
       - name: Build
         run: |
-          cp .config ./immortalwrt/
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          cp ../.config ./
           make defconfig
           cat .config
           # make download
