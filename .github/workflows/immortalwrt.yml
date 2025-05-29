@@ -36,23 +36,17 @@ jobs:
       - name: Build
         run: |
           cd immortalwrt
+          echo "src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki.git;main" >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           cp ../.config ./
           make defconfig
-          cat .config
-          # make download
+          make download
           make -j$(nproc)
-          pwd
           ls -l bin/targets/rockchip/armv8/
           cat bin/targets/rockchip/armv8/immortalwrt-rockchip-armv8-friendlyarm_nanopi-r5c.manifest
-      # - uses: actions/upload-artifact@v4
-      #   with:
-      #     name: images
-      #     path: /home/runner/work/cicd/cicd/immortalwrt/bin/targets/rockchip/armv8/*.gz
-      #     compression-level: 0
-
-
-# sed -i 's+https://github.com/immortalwrt/packages.git+https://github.com/rongxiong/packages.git+g' feeds.conf.default
-# echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main" >> feeds.conf.default
-# echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main" >> feeds.conf.default
+      - uses: actions/upload-artifact@v4
+        with:
+          name: images
+          path: /home/runner/work/cicd/cicd/immortalwrt/bin/targets/rockchip/armv8/*.gz
+          compression-level: 0
