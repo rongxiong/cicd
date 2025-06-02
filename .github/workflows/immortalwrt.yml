@@ -42,7 +42,7 @@ jobs:
           cp ../.config ./
           make defconfig
           make download
-          make V=s -j$(nproc)
+          make -j$(( $(nproc) * 3 / 2 ))
           ls -l bin/targets/rockchip/armv8/
           cat bin/targets/rockchip/armv8/immortalwrt-rockchip-armv8-friendlyarm_nanopi-r5c.manifest
       - uses: actions/upload-artifact@v4
