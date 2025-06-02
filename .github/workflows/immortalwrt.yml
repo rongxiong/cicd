@@ -44,6 +44,7 @@ jobs:
           make download
           make -j$(( $(nproc) * 3 / 2 ))
           ls -l bin/targets/rockchip/armv8/
+          cat bin/targets/rockchip/armv8/sha256sums
           cat bin/targets/rockchip/armv8/immortalwrt-rockchip-armv8-friendlyarm_nanopi-r5c.manifest
       - uses: actions/upload-artifact@v4
         with:
