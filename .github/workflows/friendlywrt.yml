@@ -18,7 +18,7 @@ jobs:
   # This workflow contains a single job called "build"
   build:
     # The type of runner that the job will run on
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -34,15 +34,15 @@ jobs:
 
       - name: Clone repository
         run: |
-          mkdir friendlywrt23-rk3568
-          cd friendlywrt23-rk3568
+          mkdir friendlywrt24-rk3568
+          cd friendlywrt24-rk3568
           git clone https://github.com/friendlyarm/repo --depth 1 tools
-          tools/repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master-v23.05 -m rk3568.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
+          tools/repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master-v24.10 -m rk3568.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
           tools/repo sync -c  --no-clone-bundle
 
       - name: Build
         run: |
-          cd friendlywrt23-rk3568/friendlywrt
+          cd friendlywrt24-rk3568/friendlywrt
           make defconfig
           cat .config
 
