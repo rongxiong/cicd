@@ -31,7 +31,9 @@ jobs:
           sudo apt-get install -y sudo curl
           sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/friendlyarm/build-env-on-ubuntu-bionic/master/install.sh)"
           echo "/opt/FriendlyARM/toolchain/11.3-aarch64/bin" >> $GITHUB_PATH
-          ls /opt/FriendlyARM/toolchain/
+
+      - name: Check installment status
+        run: |
           aarch64-linux-gcc -v
 
       - name: Clone repository
