@@ -173,16 +173,16 @@ jobs:
       # Reuse downloaded tarballs and compiled toolchain objects
       # from previous runs (kept below the 10 GB cache limit).
       # ------------------------------------------------------------
-      - name: Restore toolchain and download cache
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            immortalwrt/dl
-            immortalwrt/build_dir/toolchain-*
-          key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
-          restore-keys: |
-            immortalwrt-gl-mt6000-${{ hashFiles('.config') }}
-            immortalwrt-gl-mt6000-
+      # - name: Restore toolchain and download cache
+      #   uses: actions/cache/restore@v6
+      #   with:
+      #     path: |
+      #       immortalwrt/dl
+      #       immortalwrt/build_dir/toolchain-*
+      #     key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
+      #     restore-keys: |
+      #       immortalwrt-gl-mt6000-${{ hashFiles('.config') }}
+      #       immortalwrt-gl-mt6000-
 
       # ------------------------------------------------------------
       # Update package feeds
@@ -260,14 +260,14 @@ jobs:
       # Persist dl/ and toolchain objects for the next run,
       # only when the build succeeded.
       # ------------------------------------------------------------
-      - name: Save toolchain and download cache
-        if: success()
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            immortalwrt/dl
-            immortalwrt/build_dir/toolchain-*
-          key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
+      # - name: Save toolchain and download cache
+      #   if: success()
+      #   uses: actions/cache/save@v6
+      #   with:
+      #     path: |
+      #       immortalwrt/dl
+      #       immortalwrt/build_dir/toolchain-*
+      #     key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
 
       # ------------------------------------------------------------
       # Create GitHub Release when manually requested
