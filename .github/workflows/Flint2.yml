@@ -41,7 +41,7 @@ jobs:
       # Checkout your ImmortalWrt fork/repository
       # ------------------------------------------------------------
       - name: Checkout source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
@@ -174,7 +174,7 @@ jobs:
       # from previous runs (kept below the 10 GB cache limit).
       # ------------------------------------------------------------
       - name: Restore toolchain and download cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             immortalwrt/dl
@@ -214,8 +214,7 @@ jobs:
         working-directory: immortalwrt
         run: |
           make download -j$(nproc) \
-            V=s \
-            DOWNLOAD_CHECK_CERTIFICATE=y
+            V=s
 
       # ------------------------------------------------------------
       # Build firmware
@@ -248,7 +247,7 @@ jobs:
       # Upload firmware as GitHub Actions artifacts
       # ------------------------------------------------------------
       - name: Upload firmware
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: immortalwrt-gl-mt6000
           path: |
@@ -263,7 +262,7 @@ jobs:
       # ------------------------------------------------------------
       - name: Save toolchain and download cache
         if: success()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             immortalwrt/dl
@@ -292,7 +291,7 @@ jobs:
 
       - name: Create GitHub Release
         if: github.event_name == 'workflow_dispatch' && inputs.release == true
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.release.outputs.version }}
           name: ImmortalWrt GL-MT6000 ${{ steps.release.outputs.version }}
