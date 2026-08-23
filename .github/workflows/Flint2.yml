@@ -16,7 +16,7 @@ on:
       - ".config"
       - ".github/workflows/Flint2.yml"
 
-  schedule:
+  # schedule:
     # Every Sunday at 02:00 UTC
     # - cron: "0 2 * * 0"
 
