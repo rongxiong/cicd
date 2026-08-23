@@ -1,0 +1,309 @@
+name: Build ImmortalWrt
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Create a GitHub Release"
+        required: true
+        default: false
+        type: boolean
+
+  push:
+    branches:
+      - main
+    paths:
+      - ".config"
+      - ".github/workflows/Flint2.yml"
+
+  schedule:
+    # Every Sunday at 02:00 UTC
+    # - cron: "0 2 * * 0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-gl-mt6000
+  cancel-in-progress: true
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    name: Build GL-MT6000
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      # ------------------------------------------------------------
+      # Checkout your ImmortalWrt fork/repository
+      # ------------------------------------------------------------
+      - name: Checkout source
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      # ------------------------------------------------------------
+      # Free as much disk space as possible.
+      # ImmortalWrt recommends at least 25 GB available.
+      # ------------------------------------------------------------
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af || true
+
+          df -h
+
+      # ------------------------------------------------------------
+      # Install ImmortalWrt build dependencies
+      # ------------------------------------------------------------
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            ack \
+            antlr3 \
+            asciidoc \
+            autoconf \
+            automake \
+            autopoint \
+            binutils \
+            bison \
+            build-essential \
+            bzip2 \
+            ccache \
+            clang \
+            cmake \
+            cpio \
+            curl \
+            device-tree-compiler \
+            ecj \
+            fastjar \
+            flex \
+            gawk \
+            gettext \
+            gcc-multilib \
+            g++-multilib \
+            git \
+            gnutls-dev \
+            gperf \
+            haveged \
+            help2man \
+            intltool \
+            lib32gcc-s1 \
+            libc6-dev-i386 \
+            libelf-dev \
+            libglib2.0-dev \
+            libgmp3-dev \
+            libltdl-dev \
+            libmpc-dev \
+            libmpfr-dev \
+            libncurses-dev \
+            libpython3-dev \
+            libreadline-dev \
+            libssl-dev \
+            libtool \
+            libyaml-dev \
+            libz-dev \
+            lld \
+            llvm \
+            lrzsz \
+            mkisofs \
+            msmtp \
+            ninja-build \
+            p7zip \
+            p7zip-full \
+            patch \
+            pkgconf \
+            python3 \
+            python3-pip \
+            python3-ply \
+            python3-docutils \
+            python3-pyelftools \
+            qemu-utils \
+            re2c \
+            rsync \
+            scons \
+            squashfs-tools \
+            subversion \
+            swig \
+            texinfo \
+            uglifyjs \
+            upx-ucl \
+            unzip \
+            vim \
+            wget \
+            xmlto \
+            xxd \
+            zlib1g-dev \
+            zstd
+
+      # ------------------------------------------------------------
+      # Verify that the uploaded/repository .config exists
+      # ------------------------------------------------------------
+      - name: Verify build configuration
+        run: |
+          test -f .config
+
+          echo "Target:"
+          grep -E '^CONFIG_TARGET_(BOARD|SUBTARGET|PROFILE)=' .config || true
+
+          echo "Architecture:"
+          grep -E '^CONFIG_TARGET_ARCH_PACKAGES=' .config || true
+
+      # ------------------------------------------------------------
+      # This repo only carries the configuration; the actual
+      # ImmortalWrt source tree is cloned separately.
+      # ------------------------------------------------------------
+      - name: Clone ImmortalWrt source
+        run: |
+          git clone -b master --single-branch --filter=blob:none \
+            https://github.com/immortalwrt/immortalwrt.git immortalwrt
+          cp .config immortalwrt/
+
+      # ------------------------------------------------------------
+      # Reuse downloaded tarballs and compiled toolchain objects
+      # from previous runs (kept below the 10 GB cache limit).
+      # ------------------------------------------------------------
+      - name: Restore toolchain and download cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            immortalwrt/dl
+            immortalwrt/build_dir/toolchain-*
+          key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
+          restore-keys: |
+            immortalwrt-gl-mt6000-${{ hashFiles('.config') }}
+            immortalwrt-gl-mt6000-
+
+      # ------------------------------------------------------------
+      # Update package feeds
+      # ------------------------------------------------------------
+      - name: Update feeds
+        working-directory: immortalwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # ------------------------------------------------------------
+      # Resolve the supplied .config
+      # ------------------------------------------------------------
+      - name: Prepare configuration
+        working-directory: immortalwrt
+        run: |
+          make defconfig
+
+          echo "Final target configuration:"
+          grep -E \
+            '^CONFIG_TARGET_(BOARD|SUBTARGET|PROFILE|ARCH_PACKAGES)=' \
+            .config || true
+
+      # ------------------------------------------------------------
+      # Download all source archives first.
+      # This makes failures easier to diagnose.
+      # ------------------------------------------------------------
+      - name: Download sources
+        working-directory: immortalwrt
+        run: |
+          make download -j$(nproc) \
+            V=s \
+            DOWNLOAD_CHECK_CERTIFICATE=y
+
+      # ------------------------------------------------------------
+      # Build firmware
+      # ------------------------------------------------------------
+      - name: Build firmware
+        working-directory: immortalwrt
+        # fallback rerun produces a readable single-threaded error log
+        run: |
+          make -j$(nproc) || make -j1 V=s
+
+      # ------------------------------------------------------------
+      # Show generated firmware
+      # ------------------------------------------------------------
+      - name: List firmware
+        working-directory: immortalwrt
+        run: |
+          echo "Firmware files:"
+          find bin/targets -type f \
+            \( -name "*.bin" \
+            -o -name "*.itb" \
+            -o -name "*.img" \
+            -o -name "*.gz" \
+            -o -name "*.ubi" \
+            -o -name "*.tar" \
+            -o -name "*.manifest" \
+            -o -name "*.json" \) \
+            -print | sort
+
+      # ------------------------------------------------------------
+      # Upload firmware as GitHub Actions artifacts
+      # ------------------------------------------------------------
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-gl-mt6000
+          path: |
+            immortalwrt/bin/targets/**/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      # ------------------------------------------------------------
+      # Persist dl/ and toolchain objects for the next run,
+      # only when the build succeeded.
+      # ------------------------------------------------------------
+      - name: Save toolchain and download cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            immortalwrt/dl
+            immortalwrt/build_dir/toolchain-*
+          key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
+
+      # ------------------------------------------------------------
+      # Create GitHub Release when manually requested
+      # ------------------------------------------------------------
+      - name: Generate release metadata
+        if: github.event_name == 'workflow_dispatch' && inputs.release == true
+        id: release
+        run: |
+          VERSION="$(date +'%Y.%m.%d')-${GITHUB_SHA::7}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## ImmortalWrt GL-MT6000"
+            echo
+            echo "- Target: MediaTek Filogic"
+            echo "- Device: GL.iNet GL-MT6000"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Build: ${VERSION}"
+          } > release-notes.md
+
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' && inputs.release == true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.version }}
+          name: ImmortalWrt GL-MT6000 ${{ steps.release.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            immortalwrt/bin/targets/**/*.bin
+            immortalwrt/bin/targets/**/*.itb
+            immortalwrt/bin/targets/**/*.img
+            immortalwrt/bin/targets/**/*.gz
+            immortalwrt/bin/targets/**/*.ubi
+            immortalwrt/bin/targets/**/*.tar
+            immortalwrt/bin/targets/**/*.manifest
+            immortalwrt/bin/targets/**/*.json
+            immortalwrt/bin/targets/**/sha256sums
