@@ -170,19 +170,19 @@ jobs:
           cp .config immortalwrt/
 
       # ------------------------------------------------------------
-      # Reuse downloaded tarballs and compiled toolchain objects
+      # Reuse downloaded tarballs and ccache compilation results
       # from previous runs (kept below the 10 GB cache limit).
       # ------------------------------------------------------------
-      # - name: Restore toolchain and download cache
-      #   uses: actions/cache/restore@v6
-      #   with:
-      #     path: |
-      #       immortalwrt/dl
-      #       immortalwrt/build_dir/toolchain-*
-      #     key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
-      #     restore-keys: |
-      #       immortalwrt-gl-mt6000-${{ hashFiles('.config') }}
-      #       immortalwrt-gl-mt6000-
+      - name: Restore download and ccache cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            immortalwrt/dl
+            immortalwrt/.ccache
+          key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
+          restore-keys: |
+            immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-
+            immortalwrt-gl-mt6000-
 
       # ------------------------------------------------------------
       # Update package feeds
@@ -209,12 +209,12 @@ jobs:
       # ------------------------------------------------------------
       # Download all source archives first.
       # This makes failures easier to diagnose.
+      # Fallback rerun survives flaky upstream mirrors.
       # ------------------------------------------------------------
       - name: Download sources
         working-directory: immortalwrt
         run: |
-          make download -j$(nproc) \
-            V=s
+          make download -j$(nproc) V=s || make download -j1 V=s
 
       # ------------------------------------------------------------
       # Build firmware
@@ -224,6 +224,16 @@ jobs:
         # fallback rerun produces a readable single-threaded error log
         run: |
           make -j$(nproc) || make -j1 V=s
+
+      # ------------------------------------------------------------
+      # Show ccache hit rate for the build
+      # ------------------------------------------------------------
+      - name: Show ccache statistics
+        working-directory: immortalwrt
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/immortalwrt/.ccache
+        run: |
+          ccache --show-stats
 
       # ------------------------------------------------------------
       # Show generated firmware
@@ -251,23 +261,30 @@ jobs:
         with:
           name: immortalwrt-gl-mt6000
           path: |
-            immortalwrt/bin/targets/**/*
+            immortalwrt/bin/targets/**/*.bin
+            immortalwrt/bin/targets/**/*.itb
+            immortalwrt/bin/targets/**/*.img
+            immortalwrt/bin/targets/**/*.gz
+            immortalwrt/bin/targets/**/*.ubi
+            immortalwrt/bin/targets/**/*.tar
+            immortalwrt/bin/targets/**/*.manifest
+            immortalwrt/bin/targets/**/*.json
+            immortalwrt/bin/targets/**/sha256sums
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
 
       # ------------------------------------------------------------
-      # Persist dl/ and toolchain objects for the next run,
-      # only when the build succeeded.
+      # Persist dl/ and ccache objects for the next run.
+      # Saved even on failed builds: ccache entries are always valid.
       # ------------------------------------------------------------
-      # - name: Save toolchain and download cache
-      #   if: success()
-      #   uses: actions/cache/save@v6
-      #   with:
-      #     path: |
-      #       immortalwrt/dl
-      #       immortalwrt/build_dir/toolchain-*
-      #     key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
+      - name: Save download and ccache cache
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            immortalwrt/dl
+            immortalwrt/.ccache
+          key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
 
       # ------------------------------------------------------------
       # Create GitHub Release when manually requested
