@@ -170,19 +170,31 @@ jobs:
           cp .config immortalwrt/
 
       # ------------------------------------------------------------
-      # Reuse downloaded tarballs and ccache compilation results
-      # from previous runs (kept below the 10 GB cache limit).
+      # Cache the built toolchain (+ ccache) via cachewrtbuild.
+      # On a cache hit it patches the Makefile to skip rebuilding
+      # the toolchain; the key auto-rotates when tools/toolchain
+      # source commits change. Toolchain + ccache are saved in its
+      # post step automatically.
       # ------------------------------------------------------------
-      - name: Restore download and ccache cache
+      - name: Cache toolchain and ccache
+        uses: stupidloud/cachewrtbuild@main
+        with:
+          prefix: ${{ github.workspace }}/immortalwrt
+          mixkey: "mt6000"
+          ccache: true
+
+      # ------------------------------------------------------------
+      # Reuse downloaded source tarballs. cachewrtbuild does NOT
+      # cache dl/, so we handle it separately (kept below repo
+      # 10 GB cache limit).
+      # ------------------------------------------------------------
+      - name: Restore download cache
         uses: actions/cache/restore@v6
         with:
-          path: |
-            immortalwrt/dl
-            immortalwrt/.ccache
-          key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
+          path: immortalwrt/dl
+          key: immortalwrt-gl-mt6000-dl-${{ hashFiles('.config') }}-${{ github.run_id }}
           restore-keys: |
-            immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-
-            immortalwrt-gl-mt6000-
+            immortalwrt-gl-mt6000-dl-
 
       # ------------------------------------------------------------
       # Update package feeds
@@ -275,16 +287,14 @@ jobs:
           retention-days: 30
 
       # ------------------------------------------------------------
-      # Persist dl/ and ccache objects for the next run.
-      # Saved even on failed builds: ccache entries are always valid.
+      # Persist downloaded source tarballs for the next run.
+      # (Toolchain + ccache are saved by cachewrtbuild's post step.)
       # ------------------------------------------------------------
-      - name: Save download and ccache cache
+      - name: Save download cache
         uses: actions/cache/save@v6
         with:
-          path: |
-            immortalwrt/dl
-            immortalwrt/.ccache
-          key: immortalwrt-gl-mt6000-${{ hashFiles('.config') }}-${{ github.run_id }}
+          path: immortalwrt/dl
+          key: immortalwrt-gl-mt6000-dl-${{ hashFiles('.config') }}-${{ github.run_id }}
 
       # ------------------------------------------------------------
       # Create GitHub Release when manually requested
