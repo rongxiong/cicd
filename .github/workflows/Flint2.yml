@@ -164,10 +164,15 @@ jobs:
       # ImmortalWrt source tree is cloned separately.
       # ------------------------------------------------------------
       - name: Clone ImmortalWrt source
+        id: src
         run: |
           git clone -b master --single-branch --filter=blob:none \
             https://github.com/immortalwrt/immortalwrt.git immortalwrt
           cp .config immortalwrt/
+
+          # Feed the upstream commit into the dl cache key so the cache
+          # rotates when ImmortalWrt bumps package versions.
+          echo "sha=$(git -C immortalwrt rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------
       # Cache the built toolchain (+ ccache) via cachewrtbuild.
@@ -187,12 +192,22 @@ jobs:
       # Reuse downloaded source tarballs. cachewrtbuild does NOT
       # cache dl/, so we handle it separately (kept below repo
       # 10 GB cache limit).
+      #
+      # The key is deterministic on purpose (upstream commit + .config):
+      # using github.run_id made the primary key unhittable and created
+      # a new multi-GB entry on every single run, which evicts the
+      # toolchain cache once the 10 GB quota is reached.
+      #
+      # feeds.conf.default is intentionally excluded: this workflow
+      # builds with ImmortalWrt's own default feeds, that file belongs
+      # to a different target and must not rotate this cache.
       # ------------------------------------------------------------
       - name: Restore download cache
+        id: dl-cache
         uses: actions/cache/restore@v6
         with:
           path: immortalwrt/dl
-          key: immortalwrt-gl-mt6000-dl-${{ hashFiles('.config') }}-${{ github.run_id }}
+          key: immortalwrt-gl-mt6000-dl-${{ steps.src.outputs.sha }}-${{ hashFiles('.config') }}
           restore-keys: |
             immortalwrt-gl-mt6000-dl-
 
@@ -289,12 +304,18 @@ jobs:
       # ------------------------------------------------------------
       # Persist downloaded source tarballs for the next run.
       # (Toolchain + ccache are saved by cachewrtbuild's post step.)
+      #
+      # Only write when this run did not restore the exact key: the
+      # key already exists otherwise, and actions/cache/save aborts
+      # with "Cache already exists" (which would fail a green build
+      # on any re-run).
       # ------------------------------------------------------------
       - name: Save download cache
+        if: always() && steps.dl-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: immortalwrt/dl
-          key: immortalwrt-gl-mt6000-dl-${{ hashFiles('.config') }}-${{ github.run_id }}
+          key: ${{ steps.dl-cache.outputs.cache-primary-key }}
 
       # ------------------------------------------------------------
       # Create GitHub Release when manually requested
