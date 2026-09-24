@@ -164,39 +164,51 @@ jobs:
       # ImmortalWrt source tree is cloned separately.
       # ------------------------------------------------------------
       - name: Clone ImmortalWrt source
-        id: src
         run: |
           git clone -b master --single-branch --filter=blob:none \
             https://github.com/immortalwrt/immortalwrt.git immortalwrt
           cp .config immortalwrt/
 
-          # Feed the upstream commit into the dl cache key so the cache
-          # rotates when ImmortalWrt bumps package versions.
-          echo "sha=$(git -C immortalwrt rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+      # ------------------------------------------------------------
+      # Calendar week for cache rotation. Weekly (not per-commit)
+      # rotation bounds feed staleness to ~1 week while keeping
+      # steady-state churn at ~1 new entry per cache per active week.
+      # ------------------------------------------------------------
+      - name: Cache calendar
+        id: cal
+        run: |
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------
-      # Cache the built toolchain (+ ccache) via cachewrtbuild.
+      # Cache the built toolchain via cachewrtbuild.
       # On a cache hit it patches the Makefile to skip rebuilding
       # the toolchain; the key auto-rotates when tools/toolchain
-      # source commits change. Toolchain + ccache are saved in its
-      # post step automatically.
+      # source commits change. Saved in its post step automatically.
+      #
+      # ccache is intentionally NOT handled here: with ccache:true
+      # this action appends a timestamp to every key, creating a new
+      # multi-GB entry on each run. ccache gets its own weekly cache
+      # below. mixkey carries the .config hash so a target change
+      # can never falsely reuse another target's toolchain.
       # ------------------------------------------------------------
-      - name: Cache toolchain and ccache
-        uses: stupidloud/cachewrtbuild@main
+      - name: Cache toolchain
+        uses: stupidloud/cachewrtbuild@b729f807837dbc3455d02fd35192660d9b662121 # @main pinned 2026-05-10
         with:
           prefix: ${{ github.workspace }}/immortalwrt
-          mixkey: "mt6000"
-          ccache: true
+          mixkey: "mt6000-${{ hashFiles('.config') }}"
+          toolchain: true
+          ccache: false
 
       # ------------------------------------------------------------
       # Reuse downloaded source tarballs. cachewrtbuild does NOT
-      # cache dl/, so we handle it separately (kept below repo
-      # 10 GB cache limit).
+      # cache dl/, so we handle it separately.
       #
-      # The key is deterministic on purpose (upstream commit + .config):
-      # using github.run_id made the primary key unhittable and created
-      # a new multi-GB entry on every single run, which evicts the
-      # toolchain cache once the 10 GB quota is reached.
+      # Key is stable within a calendar week on purpose: keying on the
+      # upstream commit rotated on every ImmortalWrt push (daily) and
+      # created a new multi-GB entry each time, evicting the toolchain
+      # cache once the 10 GB quota is reached. Feed drift within the
+      # week is covered by the prefix fallback plus `make download`
+      # fetching the delta.
       #
       # feeds.conf.default is intentionally excluded: this workflow
       # builds with ImmortalWrt's own default feeds, that file belongs
@@ -207,9 +219,25 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: immortalwrt/dl
-          key: immortalwrt-gl-mt6000-dl-${{ steps.src.outputs.sha }}-${{ hashFiles('.config') }}
+          key: immortalwrt-gl-mt6000-dl-${{ hashFiles('.config') }}-${{ steps.cal.outputs.week }}
           restore-keys: |
+            immortalwrt-gl-mt6000-dl-${{ hashFiles('.config') }}-
             immortalwrt-gl-mt6000-dl-
+
+      # ------------------------------------------------------------
+      # Reuse ccache (.config enables CONFIG_CCACHE=y). Weekly key
+      # with prefix fallback: warm hits all week, at most one new
+      # entry per active week.
+      # ------------------------------------------------------------
+      - name: Restore ccache
+        id: ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: immortalwrt/.ccache
+          key: immortalwrt-gl-mt6000-ccache-${{ hashFiles('.config') }}-${{ steps.cal.outputs.week }}
+          restore-keys: |
+            immortalwrt-gl-mt6000-ccache-${{ hashFiles('.config') }}-
+            immortalwrt-gl-mt6000-ccache-
 
       # ------------------------------------------------------------
       # Update package feeds
@@ -239,6 +267,7 @@ jobs:
       # Fallback rerun survives flaky upstream mirrors.
       # ------------------------------------------------------------
       - name: Download sources
+        id: download
         working-directory: immortalwrt
         run: |
           make download -j$(nproc) V=s || make download -j1 V=s
@@ -247,6 +276,7 @@ jobs:
       # Build firmware
       # ------------------------------------------------------------
       - name: Build firmware
+        id: build
         working-directory: immortalwrt
         # fallback rerun produces a readable single-threaded error log
         run: |
@@ -303,19 +333,32 @@ jobs:
 
       # ------------------------------------------------------------
       # Persist downloaded source tarballs for the next run.
-      # (Toolchain + ccache are saved by cachewrtbuild's post step.)
+      # (Toolchain is saved by cachewrtbuild's post step.)
       #
       # Only write when this run did not restore the exact key: the
       # key already exists otherwise, and actions/cache/save aborts
       # with "Cache already exists" (which would fail a green build
-      # on any re-run).
+      # on any re-run). Gated on download success so a failed or
+      # partial download never poisons the cache; a later build
+      # failure still keeps the good dl/ snapshot for resume.
       # ------------------------------------------------------------
       - name: Save download cache
-        if: always() && steps.dl-cache.outputs.cache-hit != 'true'
+        if: always() && steps.dl-cache.outputs.cache-hit != 'true' && steps.download.outcome == 'success'
         uses: actions/cache/save@v6
         with:
           path: immortalwrt/dl
           key: ${{ steps.dl-cache.outputs.cache-primary-key }}
+
+      # ------------------------------------------------------------
+      # Persist ccache for the next run. Same exact-hit rule as dl/:
+      # at most one new entry per active week.
+      # ------------------------------------------------------------
+      - name: Save ccache
+        if: always() && steps.ccache.outputs.cache-hit != 'true' && steps.build.outcome == 'success'
+        uses: actions/cache/save@v6
+        with:
+          path: immortalwrt/.ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
 
       # ------------------------------------------------------------
       # Create GitHub Release when manually requested
