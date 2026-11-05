@@ -271,6 +271,18 @@ jobs:
             exit 1
           fi
 
+          # defconfig silently drops kmod symbols when a dependency
+          # (PCI support, 11ax, feeds) is unavailable. Catch that here
+          # instead of shipping a firmware without MT7922 support.
+          for sym in \
+            CONFIG_PACKAGE_kmod-mt7921e \
+            CONFIG_PACKAGE_kmod-mt7922-firmware; do
+            if ! grep -Fqx "${sym}=y" .config; then
+              echo "::error::${sym} was dropped by make defconfig (MT7922 support incomplete)"
+              exit 1
+            fi
+          done
+
       # ------------------------------------------------------------
       # Download all source archives first.
       # This makes failures easier to diagnose.
