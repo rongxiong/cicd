@@ -187,58 +187,79 @@ jobs:
 
       # ------------------------------------------------------------
       # Cache the built toolchain via cachewrtbuild.
-      # On a cache hit it patches the Makefile to skip rebuilding
-      # the toolchain; the key auto-rotates when tools/toolchain
-      # source commits change. Saved in its post step automatically.
       #
-      # ccache is intentionally NOT handled here: with ccache:true
-      # this action appends a timestamp to every key, creating a new
-      # multi-GB entry on each run. ccache gets its own weekly cache
-      # below. mixkey carries the R5C.config hash so a target change
-      # can never falsely reuse another target's toolchain.
+      # Its key is <mixkey>-cache-openwrt-<hash of the last commit to
+      # tools/ + toolchain/>, so it already rotates when the toolchain
+      # sources change. On a hit it patches the Makefile to skip
+      # rebuilding the toolchain. The post step (post-if: success())
+      # saves it, so a failed build saves nothing.
+      #
+      # mixkey must NOT include hashFiles('R5C.config'): the toolchain
+      # depends on the target and toolchain sources, not on which
+      # packages are selected. Including the config hash made adding
+      # one package discard a multi-GB toolchain cache.
+      #
+      # ccache:false is deliberate - with ccache:true this action
+      # appends a timestamp to every key and writes a new multi-GB
+      # entry per run. ccache has its own weekly cache below.
       # ------------------------------------------------------------
       - name: Cache toolchain
+        id: toolchain
         uses: stupidloud/cachewrtbuild@b729f807837dbc3455d02fd35192660d9b662121 # @main pinned 2026-05-10
         with:
           prefix: ${{ github.workspace }}/lede
-          mixkey: "nanopi-r5c-${{ hashFiles('R5C.config') }}"
+          mixkey: "nanopi-r5c"
           toolchain: true
           ccache: false
 
       # ------------------------------------------------------------
-      # Reuse downloaded source tarballs. cachewrtbuild does NOT
-      # cache dl/, so we handle it separately.
+      # Reuse downloaded source tarballs and ccache. cachewrtbuild
+      # does NOT cache dl/, so we handle it separately.
       #
-      # Key is stable within a calendar week on purpose: keying on the
-      # upstream commit rotated on every LEDE push (daily) and created
-      # a new multi-GB entry each time, evicting the toolchain cache
-      # once the 10 GB quota is reached. Feed drift within the week is
-      # covered by the prefix fallback plus `make download`.
+      # Both are content-addressed: adding/removing packages does not
+      # invalidate their entries, so their keys must NOT include
+      # hashFiles('R5C.config') - that made any config edit discard
+      # both caches. Keep only the target prefix (no cross-target
+      # reuse) and the calendar week. Week rotation bounds feed
+      # staleness; the prefix fallback plus `make download` covers
+      # drift within a week. Keying on the upstream commit instead
+      # rotated on every LEDE push (daily), creating a new multi-GB
+      # entry each time and evicting the toolchain cache at the
+      # repository's 10 GB quota.
       # ------------------------------------------------------------
       - name: Restore download cache
         id: dl-cache
         uses: actions/cache/restore@v6
         with:
           path: lede/dl
-          key: lede-nanopi-r5c-dl-${{ hashFiles('R5C.config') }}-${{ steps.cal.outputs.week }}
+          key: lede-nanopi-r5c-dl-${{ steps.cal.outputs.week }}
           restore-keys: |
-            lede-nanopi-r5c-dl-${{ hashFiles('R5C.config') }}-
             lede-nanopi-r5c-dl-
 
       # ------------------------------------------------------------
-      # Reuse ccache (R5C.config enables CONFIG_CCACHE=y). Weekly key
-      # with prefix fallback: warm hits all week, at most one new
-      # entry per active week.
+      # R5C.config enables CONFIG_CCACHE=y; rules.mk exports
+      # CCACHE_DIR=$(TOPDIR)/.ccache, which matches this path.
       # ------------------------------------------------------------
       - name: Restore ccache
         id: ccache
         uses: actions/cache/restore@v6
         with:
           path: lede/.ccache
-          key: lede-nanopi-r5c-ccache-${{ hashFiles('R5C.config') }}-${{ steps.cal.outputs.week }}
+          key: lede-nanopi-r5c-ccache-${{ steps.cal.outputs.week }}
           restore-keys: |
-            lede-nanopi-r5c-ccache-${{ hashFiles('R5C.config') }}-
             lede-nanopi-r5c-ccache-
+
+      # ------------------------------------------------------------
+      # Make cache effectiveness visible before the expensive steps.
+      # All three "miss" means this run is effectively a full rebuild.
+      # ------------------------------------------------------------
+      - name: Cache status
+        run: |
+          echo "toolchain hit: ${{ steps.toolchain.outputs.hit || '0 (miss)' }}"
+          echo "dl cache hit:  ${{ steps.dl-cache.outputs.cache-hit }}"
+          echo "ccache hit:    ${{ steps.ccache.outputs.cache-hit }}"
+          echo "LEDE commit:   $(git -C lede rev-parse --short HEAD)"
+          echo "calendar week: ${{ steps.cal.outputs.week }}"
 
       # ------------------------------------------------------------
       # Update package feeds (LEDE's own feeds.conf.default)
@@ -271,17 +292,23 @@ jobs:
             exit 1
           fi
 
-          # defconfig silently drops kmod symbols when a dependency
+          # defconfig silently drops package symbols when a dependency
           # (PCI support, 11ax, feeds) is unavailable. Catch that here
-          # instead of shipping a firmware without MT7922 support.
+          # instead of shipping a firmware missing explicit features.
           for sym in \
             CONFIG_PACKAGE_kmod-mt7921e \
             CONFIG_PACKAGE_kmod-mt7922-firmware; do
             if ! grep -Fqx "${sym}=y" .config; then
-              echo "::error::${sym} was dropped by make defconfig (MT7922 support incomplete)"
+              echo "::error::${sym} was dropped by make defconfig"
               exit 1
             fi
           done
+
+          # DEFAULT_PACKAGES.router supplies LEDE's own LuCI apps. Print
+          # what defconfig actually selected so a broken feed cannot
+          # silently strip them from the image.
+          echo "LEDE LuCI applications selected:"
+          grep -E '^CONFIG_PACKAGE_luci-app-.*=y$' .config | sort || true
 
       # ------------------------------------------------------------
       # Download all source archives first.
