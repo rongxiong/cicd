@@ -1,0 +1,421 @@
+name: Build LEDE (NanoPi R5C)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Create a GitHub Release"
+        default: false
+        type: boolean
+
+  push:
+    branches:
+      - main
+    paths:
+      - "R5C.config"
+      - ".github/workflows/R5C.yml"
+
+  # schedule:
+    # Every Sunday at 02:00 UTC
+    # - cron: "0 2 * * 0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-friendlyarm-nanopi-r5c-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    name: Build FriendlyARM NanoPi R5C
+    # ubuntu-26.04 images exist, but LEDE's build dependencies are only
+    # verified against noble here; keep the 24.04 LTS image.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      # ------------------------------------------------------------
+      # Checkout this repository (R5C.config + workflows only)
+      # ------------------------------------------------------------
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      # ------------------------------------------------------------
+      # Free as much disk space as possible.
+      # An OpenWrt/LEDE build needs at least 25 GB available.
+      # ------------------------------------------------------------
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af || true
+
+          df -h
+
+      # ------------------------------------------------------------
+      # Install LEDE build dependencies.
+      #
+      # Use the real noble package names instead of Flint2.yml's list:
+      #   mkisofs       -> genisoimage (mkisofs is a virtual package)
+      #   p7zip/p7zip-full -> 7zip    (both are transitional packages)
+      #   libz-dev      -> dropped    (already covered by zlib1g-dev)
+      # A single unresolvable name aborts the whole apt transaction.
+      # ------------------------------------------------------------
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y --no-install-recommends \
+            7zip \
+            ack \
+            antlr3 \
+            asciidoc \
+            autoconf \
+            automake \
+            autopoint \
+            binutils \
+            bison \
+            build-essential \
+            bzip2 \
+            ccache \
+            clang \
+            cmake \
+            cpio \
+            curl \
+            device-tree-compiler \
+            ecj \
+            fastjar \
+            flex \
+            gawk \
+            genisoimage \
+            gettext \
+            gcc-multilib \
+            g++-multilib \
+            git \
+            gnutls-dev \
+            gperf \
+            haveged \
+            help2man \
+            intltool \
+            lib32gcc-s1 \
+            libc6-dev-i386 \
+            libelf-dev \
+            libglib2.0-dev \
+            libgmp3-dev \
+            libltdl-dev \
+            libmpc-dev \
+            libmpfr-dev \
+            libncurses-dev \
+            libpython3-dev \
+            libreadline-dev \
+            libssl-dev \
+            libtool \
+            libyaml-dev \
+            lld \
+            llvm \
+            lrzsz \
+            msmtp \
+            ninja-build \
+            patch \
+            pkgconf \
+            python3 \
+            python3-pip \
+            python3-ply \
+            python3-docutils \
+            python3-pyelftools \
+            qemu-utils \
+            re2c \
+            rsync \
+            scons \
+            squashfs-tools \
+            subversion \
+            swig \
+            texinfo \
+            uglifyjs \
+            upx-ucl \
+            unzip \
+            vim \
+            wget \
+            xmlto \
+            xxd \
+            zlib1g-dev \
+            zstd
+
+      # ------------------------------------------------------------
+      # Verify that the R5C seed config exists
+      # ------------------------------------------------------------
+      - name: Verify build configuration
+        run: |
+          test -f R5C.config
+
+          echo "Target seed:"
+          grep -E '^CONFIG_TARGET_' R5C.config || true
+
+      # ------------------------------------------------------------
+      # This repo only carries the configuration; the actual source
+      # tree is cloned separately from coolsnowwolf/lede.
+      #
+      # The repository's feeds.conf.default is NOT copied: it points at
+      # ImmortalWrt feeds (and the GL-MT6000 build) and is incompatible
+      # with LEDE. LEDE's own feeds.conf.default is used instead.
+      # ------------------------------------------------------------
+      - name: Clone LEDE source
+        run: |
+          git clone -b master --single-branch --filter=blob:none \
+            https://github.com/coolsnowwolf/lede.git lede
+          cp R5C.config lede/.config
+
+      # ------------------------------------------------------------
+      # Calendar week for cache rotation. Weekly (not per-commit)
+      # rotation bounds feed staleness to ~1 week while keeping
+      # steady-state churn at ~1 new entry per cache per active week.
+      # ------------------------------------------------------------
+      - name: Cache calendar
+        id: cal
+        run: |
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------
+      # Cache the built toolchain via cachewrtbuild.
+      # On a cache hit it patches the Makefile to skip rebuilding
+      # the toolchain; the key auto-rotates when tools/toolchain
+      # source commits change. Saved in its post step automatically.
+      #
+      # ccache is intentionally NOT handled here: with ccache:true
+      # this action appends a timestamp to every key, creating a new
+      # multi-GB entry on each run. ccache gets its own weekly cache
+      # below. mixkey carries the R5C.config hash so a target change
+      # can never falsely reuse another target's toolchain.
+      # ------------------------------------------------------------
+      - name: Cache toolchain
+        uses: stupidloud/cachewrtbuild@b729f807837dbc3455d02fd35192660d9b662121 # @main pinned 2026-05-10
+        with:
+          prefix: ${{ github.workspace }}/lede
+          mixkey: "nanopi-r5c-${{ hashFiles('R5C.config') }}"
+          toolchain: true
+          ccache: false
+
+      # ------------------------------------------------------------
+      # Reuse downloaded source tarballs. cachewrtbuild does NOT
+      # cache dl/, so we handle it separately.
+      #
+      # Key is stable within a calendar week on purpose: keying on the
+      # upstream commit rotated on every LEDE push (daily) and created
+      # a new multi-GB entry each time, evicting the toolchain cache
+      # once the 10 GB quota is reached. Feed drift within the week is
+      # covered by the prefix fallback plus `make download`.
+      # ------------------------------------------------------------
+      - name: Restore download cache
+        id: dl-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: lede/dl
+          key: lede-nanopi-r5c-dl-${{ hashFiles('R5C.config') }}-${{ steps.cal.outputs.week }}
+          restore-keys: |
+            lede-nanopi-r5c-dl-${{ hashFiles('R5C.config') }}-
+            lede-nanopi-r5c-dl-
+
+      # ------------------------------------------------------------
+      # Reuse ccache (R5C.config enables CONFIG_CCACHE=y). Weekly key
+      # with prefix fallback: warm hits all week, at most one new
+      # entry per active week.
+      # ------------------------------------------------------------
+      - name: Restore ccache
+        id: ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: lede/.ccache
+          key: lede-nanopi-r5c-ccache-${{ hashFiles('R5C.config') }}-${{ steps.cal.outputs.week }}
+          restore-keys: |
+            lede-nanopi-r5c-ccache-${{ hashFiles('R5C.config') }}-
+            lede-nanopi-r5c-ccache-
+
+      # ------------------------------------------------------------
+      # Update package feeds (LEDE's own feeds.conf.default)
+      # ------------------------------------------------------------
+      - name: Update feeds
+        working-directory: lede
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # ------------------------------------------------------------
+      # Resolve the seed config and assert the resolved target is
+      # really the NanoPi R5C. A typo in the profile symbol would
+      # otherwise fall back to LEDE's default x86 target silently.
+      # ------------------------------------------------------------
+      - name: Prepare configuration
+        working-directory: lede
+        run: |
+          make defconfig
+
+          echo "Final target configuration:"
+          grep -E \
+            '^CONFIG_TARGET_(BOARD|SUBTARGET|PROFILE|ARCH_PACKAGES)=' \
+            .config || true
+
+          if ! grep -q '^CONFIG_TARGET_BOARD="rockchip"$' .config \
+             || ! grep -q '^CONFIG_TARGET_SUBTARGET="armv8"$' .config \
+             || ! grep -q '^CONFIG_TARGET_PROFILE="DEVICE_friendlyarm_nanopi-r5c"$' .config; then
+            echo "::error::R5C.config did not resolve to the NanoPi R5C target"
+            exit 1
+          fi
+
+      # ------------------------------------------------------------
+      # Download all source archives first.
+      # This makes failures easier to diagnose.
+      # Fallback rerun survives flaky upstream mirrors.
+      # ------------------------------------------------------------
+      - name: Download sources
+        id: download
+        working-directory: lede
+        run: |
+          make download -j$(nproc) V=s || make download -j1 V=s
+
+      # ------------------------------------------------------------
+      # Build firmware
+      # ------------------------------------------------------------
+      - name: Build firmware
+        id: build
+        working-directory: lede
+        # fallback rerun produces a readable single-threaded error log
+        run: |
+          make -j$(nproc) || make -j1 V=s
+
+      # ------------------------------------------------------------
+      # Show ccache hit rate for the build
+      # ------------------------------------------------------------
+      - name: Show ccache statistics
+        working-directory: lede
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/lede/.ccache
+        run: |
+          ccache --show-stats
+
+      # ------------------------------------------------------------
+      # Show generated firmware and assert the R5C sysupgrade image
+      # was really produced (upstream image naming does change).
+      # ------------------------------------------------------------
+      - name: List firmware
+        working-directory: lede
+        run: |
+          echo "Firmware files:"
+          find bin/targets -type f \
+            \( -name "*.bin" \
+            -o -name "*.itb" \
+            -o -name "*.img" \
+            -o -name "*.gz" \
+            -o -name "*.ubi" \
+            -o -name "*.tar" \
+            -o -name "*.manifest" \
+            -o -name "*.json" \) \
+            -print | sort
+
+          if ! find bin/targets/rockchip/armv8 -type f \
+              -name '*friendlyarm_nanopi-r5c*sysupgrade.img.gz' -print -quit | grep -q .; then
+            echo "::error::No NanoPi R5C sysupgrade image was generated"
+            exit 1
+          fi
+
+      # ------------------------------------------------------------
+      # Upload firmware as GitHub Actions artifacts
+      # ------------------------------------------------------------
+      - name: Upload firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: lede-friendlyarm-nanopi-r5c
+          path: |
+            lede/bin/targets/**/*.bin
+            lede/bin/targets/**/*.itb
+            lede/bin/targets/**/*.img
+            lede/bin/targets/**/*.gz
+            lede/bin/targets/**/*.ubi
+            lede/bin/targets/**/*.tar
+            lede/bin/targets/**/*.manifest
+            lede/bin/targets/**/*.json
+            lede/bin/targets/**/sha256sums
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      # ------------------------------------------------------------
+      # Persist downloaded source tarballs for the next run.
+      # (Toolchain is saved by cachewrtbuild's post step.)
+      #
+      # Only write when this run did not restore the exact key: the
+      # key already exists otherwise, and actions/cache/save aborts
+      # with "Cache already exists" (which would fail a green build
+      # on any re-run). !cancelled() keeps a cancelled/timeout run
+      # from uploading a multi-GB snapshot on its way out. Gated on
+      # download success so a failed or partial download never
+      # poisons the cache; a later build failure still keeps the good
+      # dl/ snapshot for resume.
+      # ------------------------------------------------------------
+      - name: Save download cache
+        if: ${{ !cancelled() && steps.dl-cache.outputs.cache-hit != 'true' && steps.download.outcome == 'success' }}
+        uses: actions/cache/save@v6
+        with:
+          path: lede/dl
+          key: ${{ steps.dl-cache.outputs.cache-primary-key }}
+
+      # ------------------------------------------------------------
+      # Persist ccache for the next run. Same exact-hit rule as dl/:
+      # at most one new entry per active week.
+      # ------------------------------------------------------------
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outputs.cache-hit != 'true' && steps.build.outcome == 'success' }}
+        uses: actions/cache/save@v6
+        with:
+          path: lede/.ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
+
+      # ------------------------------------------------------------
+      # Create GitHub Release when manually requested
+      # ------------------------------------------------------------
+      - name: Generate release metadata
+        if: github.event_name == 'workflow_dispatch' && inputs.release == true
+        id: release
+        run: |
+          VERSION="$(date +'%Y.%m.%d')-${GITHUB_SHA::7}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Lean's LEDE - FriendlyARM NanoPi R5C"
+            echo
+            echo "- Target: Rockchip RK3568 (rockchip/armv8)"
+            echo "- Device: FriendlyARM NanoPi R5C (friendlyarm_nanopi-r5c)"
+            echo "- Source: coolsnowwolf/lede@master"
+            echo "- Config: R5C.config"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Build: ${VERSION}"
+          } > release-notes.md
+
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' && inputs.release == true
+        uses: softprops/action-gh-release@v3
+        with:
+          # Prefixed so a same-day Flint2 build cannot reuse this tag.
+          tag_name: r5c-${{ steps.release.outputs.version }}
+          name: LEDE NanoPi R5C ${{ steps.release.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            lede/bin/targets/**/*.bin
+            lede/bin/targets/**/*.itb
+            lede/bin/targets/**/*.img
+            lede/bin/targets/**/*.gz
+            lede/bin/targets/**/*.ubi
+            lede/bin/targets/**/*.tar
+            lede/bin/targets/**/*.manifest
+            lede/bin/targets/**/*.json
+            lede/bin/targets/**/sha256sums
