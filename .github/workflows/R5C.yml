@@ -262,6 +262,30 @@ jobs:
           echo "calendar week: ${{ steps.cal.outputs.week }}"
 
       # ------------------------------------------------------------
+      # Homeproxy from rongxiong/homeproxy.
+      #
+      # It is a single-package repository: the package Makefile lives at
+      # the repository root, so it cannot be registered as a src-git feed
+      # (feeds only scan <feed>/<package>/Makefile). Clone it into the
+      # buildroot's package/ tree instead. Its Makefile includes
+      # $(TOPDIR)/feeds/luci/luci.mk, which `feeds update -a` provides.
+      #
+      # LEDE's luci feed already ships a package with the same name. Having
+      # the fork in package/ first makes `feeds install -a` treat it as a
+      # core package and skip the feed copy, leaving one definition only.
+      # ------------------------------------------------------------
+      - name: Install homeproxy
+        working-directory: lede
+        run: |
+          git clone -b master --single-branch --depth 1 \
+            https://github.com/rongxiong/homeproxy.git \
+            package/luci-app-homeproxy
+
+          grep -Fq 'PKG_NAME:=luci-app-homeproxy' \
+            package/luci-app-homeproxy/Makefile
+          echo "homeproxy commit: $(git -C package/luci-app-homeproxy rev-parse --short HEAD)"
+
+      # ------------------------------------------------------------
       # Update package feeds (LEDE's own feeds.conf.default)
       # ------------------------------------------------------------
       - name: Update feeds
@@ -269,6 +293,12 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+          # Normally `feeds install -a` sees the core package installed
+          # above and skips the luci feed's luci-app-homeproxy. Remove the
+          # link anyway so a feeds behaviour change cannot leave two
+          # definitions of the same package in the build.
+          rm -f package/feeds/luci/luci-app-homeproxy
 
       # ------------------------------------------------------------
       # Resolve the seed config and assert the resolved target is
@@ -279,6 +309,11 @@ jobs:
         working-directory: lede
         run: |
           make defconfig
+
+          if [ -e package/feeds/luci/luci-app-homeproxy ]; then
+            echo "::error::luci-app-homeproxy is still installed from the luci feed"
+            exit 1
+          fi
 
           echo "Final target configuration:"
           grep -E \
@@ -297,7 +332,13 @@ jobs:
           # instead of shipping a firmware missing explicit features.
           for sym in \
             CONFIG_PACKAGE_kmod-mt7921e \
-            CONFIG_PACKAGE_kmod-mt7922-firmware; do
+            CONFIG_PACKAGE_kmod-mt7922-firmware \
+            CONFIG_PACKAGE_luci-app-homeproxy \
+            CONFIG_PACKAGE_luci-i18n-homeproxy-zh-cn \
+            CONFIG_PACKAGE_sing-box \
+            CONFIG_PACKAGE_firewall4 \
+            CONFIG_PACKAGE_kmod-nft-tproxy \
+            CONFIG_PACKAGE_ucode-mod-digest; do
             if ! grep -Fqx "${sym}=y" .config; then
               echo "::error::${sym} was dropped by make defconfig"
               exit 1
