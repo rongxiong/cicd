@@ -1,4 +1,4 @@
-name: Build ImmortalWrt
+name: Build ImmortalWrt (GL-MT6000)
 
 on:
   workflow_dispatch:
@@ -240,6 +240,30 @@ jobs:
             immortalwrt-gl-mt6000-ccache-
 
       # ------------------------------------------------------------
+      # Replace the luci feed's homeproxy with rongxiong/homeproxy.
+      #
+      # It is a single-package repository: the package Makefile lives at
+      # the repository root, so it cannot be registered as a src-git feed
+      # (feeds only scan <feed>/<package>/Makefile). Clone it into the
+      # buildroot's package/ tree instead; its Makefile includes
+      # $(TOPDIR)/feeds/luci/luci.mk, which `feeds update -a` provides.
+      #
+      # ImmortalWrt's luci feed ships a package with the same name. Having
+      # the fork in package/ first makes `feeds install -a` treat it as a
+      # core package and skip the feed copy, leaving one definition only.
+      # ------------------------------------------------------------
+      - name: Replace homeproxy with rongxiong/homeproxy
+        working-directory: immortalwrt
+        run: |
+          git clone -b master --single-branch --depth 1 \
+            https://github.com/rongxiong/homeproxy \
+            package/luci-app-homeproxy
+
+          grep -Fq 'PKG_NAME:=luci-app-homeproxy' \
+            package/luci-app-homeproxy/Makefile
+          echo "homeproxy commit: $(git -C package/luci-app-homeproxy rev-parse --short HEAD)"
+
+      # ------------------------------------------------------------
       # Update package feeds
       # ------------------------------------------------------------
       - name: Update feeds
@@ -247,6 +271,10 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+          # Keep only the fork: remove the luci feed's link in case feeds
+          # behaviour changes and it leaves a second package definition.
+          rm -f package/feeds/luci/luci-app-homeproxy
 
       # ------------------------------------------------------------
       # Resolve the supplied .config
