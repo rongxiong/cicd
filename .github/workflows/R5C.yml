@@ -7,6 +7,11 @@ on:
         description: "Create a GitHub Release"
         default: false
         type: boolean
+      reset_cache:
+        description: "Reset build caches: delete stale entries and rebuild from scratch"
+        required: false
+        default: false
+        type: boolean
 
   push:
     branches:
@@ -21,6 +26,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # reset_cache needs the caches API to delete stale entries
 
 concurrency:
   group: build-friendlyarm-nanopi-r5c-${{ github.ref }}
@@ -186,6 +192,52 @@ jobs:
           echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------
+      # Manual "reset_cache" switch.
+      #
+      # A stale or poisoned dl/, .ccache or toolchain entry can break a
+      # build in ways a plain re-run cannot fix: the weekly key plus the
+      # restore-keys prefix keep handing back the same bad snapshot.
+      # This switch deletes every cache entry owned by this workflow, so
+      # all three restores miss and the run rebuilds from scratch. The
+      # save steps then repopulate the very same keys with clean data,
+      # so the next normal build is warm again.
+      #
+      # The caches API needs `permissions: actions: write`. A failed
+      # listing aborts the step instead of silently pretending the reset
+      # happened. If this run fails, the next one is a cold build - the
+      # expected cost of a reset.
+      #
+      # Match on the device tag rather than a fixed key prefix so the
+      # cachewrtbuild toolchain key, whose prefix the action derives
+      # from mixkey, is covered as well.
+      # ------------------------------------------------------------
+      - name: Reset caches
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset_cache == true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          ids="$(gh api --paginate --method GET \
+            "/repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
+            --jq '.actions_caches[] | select(.key | test("nanopi-r5c")) | .id')"
+
+          if [ -z "${ids}" ]; then
+            echo "No NanoPi R5C cache entries to reset."
+            exit 0
+          fi
+
+          echo "Deleting NanoPi R5C cache entries:"
+          echo "${ids}"
+
+          while read -r id; do
+            [ -n "${id}" ] || continue
+            gh api --method DELETE \
+              "/repos/${GITHUB_REPOSITORY}/actions/caches/${id}" \
+              || echo "::warning::Failed to delete cache ${id}" >&2
+          done <<< "${ids}"
+
+      # ------------------------------------------------------------
       # Cache the built toolchain via cachewrtbuild.
       #
       # Its key is <mixkey>-cache-openwrt-<hash of the last commit to
@@ -227,7 +279,10 @@ jobs:
       # entry each time and evicting the toolchain cache at the
       # repository's 10 GB quota.
       # ------------------------------------------------------------
+      # Skipped on reset: entries were deleted above, and the prefix
+      # fallback must not resurrect an older snapshot anyway.
       - name: Restore download cache
+        if: ${{ inputs.reset_cache != true }}
         id: dl-cache
         uses: actions/cache/restore@v6
         with:
@@ -241,6 +296,7 @@ jobs:
       # CCACHE_DIR=$(TOPDIR)/.ccache, which matches this path.
       # ------------------------------------------------------------
       - name: Restore ccache
+        if: ${{ inputs.reset_cache != true }}
         id: ccache
         uses: actions/cache/restore@v6
         with:
@@ -255,9 +311,10 @@ jobs:
       # ------------------------------------------------------------
       - name: Cache status
         run: |
+          echo "cache reset:   ${{ github.event_name == 'workflow_dispatch' && inputs.reset_cache == true }}"
           echo "toolchain hit: ${{ steps.toolchain.outputs.hit || '0 (miss)' }}"
-          echo "dl cache hit:  ${{ steps.dl-cache.outputs.cache-hit }}"
-          echo "ccache hit:    ${{ steps.ccache.outputs.cache-hit }}"
+          echo "dl cache hit:  ${{ steps.dl-cache.outputs.cache-hit || 'skipped (reset)' }}"
+          echo "ccache hit:    ${{ steps.ccache.outputs.cache-hit || 'skipped (reset)' }}"
           echo "LEDE commit:   $(git -C lede rev-parse --short HEAD)"
           echo "calendar week: ${{ steps.cal.outputs.week }}"
 
@@ -440,24 +497,30 @@ jobs:
       # download success so a failed or partial download never
       # poisons the cache; a later build failure still keeps the good
       # dl/ snapshot for resume.
+      #
+      # On a reset the restore step is skipped, hence the explicit
+      # reset branch in the condition instead of relying on the empty
+      # cache-hit output. This save recreates the original (now deleted)
+      # key with clean data, so the next normal build is warm again.
+      # The key is spelled out, not read from a skipped step's output.
       # ------------------------------------------------------------
       - name: Save download cache
-        if: ${{ !cancelled() && steps.dl-cache.outputs.cache-hit != 'true' && steps.download.outcome == 'success' }}
+        if: ${{ !cancelled() && (inputs.reset_cache == true || steps.dl-cache.outputs.cache-hit != 'true') && steps.download.outcome == 'success' }}
         uses: actions/cache/save@v6
         with:
           path: lede/dl
-          key: ${{ steps.dl-cache.outputs.cache-primary-key }}
+          key: lede-nanopi-r5c-dl-${{ steps.cal.outputs.week }}
 
       # ------------------------------------------------------------
       # Persist ccache for the next run. Same exact-hit rule as dl/:
       # at most one new entry per active week.
       # ------------------------------------------------------------
       - name: Save ccache
-        if: ${{ !cancelled() && steps.ccache.outputs.cache-hit != 'true' && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && (inputs.reset_cache == true || steps.ccache.outputs.cache-hit != 'true') && steps.build.outcome == 'success' }}
         uses: actions/cache/save@v6
         with:
           path: lede/.ccache
-          key: ${{ steps.ccache.outputs.cache-primary-key }}
+          key: lede-nanopi-r5c-ccache-${{ steps.cal.outputs.week }}
 
       # ------------------------------------------------------------
       # Create GitHub Release when manually requested
